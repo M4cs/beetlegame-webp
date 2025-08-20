@@ -44,6 +44,10 @@ export interface TextLayout {
   align: TextAlignment;
   maxWidth?: number;
   lineHeight?: number;
+  // New properties for padding and background
+  padding?: number;
+  backgroundColor?: string;
+  backgroundBlur?: number;
 }
 
 export interface CardLayout {
@@ -226,7 +230,6 @@ export class CardGenerator {
       console.log(`\n📝 Processing font: ${fontName}`);
       console.log(`   Path: ${fontPath}`);
 
-      // Check if font file exists
       try {
         const stats = await fs.stat(fontPath);
         if (!stats.isFile()) {
@@ -243,19 +246,16 @@ export class CardGenerator {
         continue;
       }
 
-      // Skip if already loaded
       if (this.loadedFonts.has(fontName)) {
         console.log(`   ⏭️  Already loaded, skipping`);
         continue;
       }
 
       try {
-        // Register the font
         registerFont(fontPath, { family: fontName });
         this.loadedFonts.add(fontName);
         console.log(`   ✅ Registered successfully as "${fontName}"`);
 
-        // Test font rendering
         const testCanvas = createCanvas(100, 50);
         const testCtx = testCanvas.getContext("2d");
         testCtx.font = `20px ${fontName}`;
@@ -370,16 +370,13 @@ export class CardGenerator {
   ): void {
     const { x, y, width, height } = layout;
 
-    // Draw the bounding box
     ctx.fillStyle = color;
     ctx.fillRect(x, y, width, height);
 
-    // Draw border
     ctx.strokeStyle = color.replace("0.3", "0.8");
     ctx.lineWidth = 2;
     ctx.strokeRect(x, y, width, height);
 
-    // Draw label with font info
     ctx.fillStyle = color.replace("0.3", "0.9");
     ctx.font = "14px Arial";
     ctx.textAlign = "left";
@@ -387,6 +384,25 @@ export class CardGenerator {
     const fontStatus = this.loadedFonts.has(layout.fontFamily) ? "✓" : "✗";
     const labelText = `${label} (${layout.fontFamily} ${fontStatus})`;
     ctx.fillText(labelText, x + 4, y + 16);
+  }
+
+  private drawTextBackground(
+    ctx: CanvasRenderingContext2D,
+    layout: TextLayout
+  ): void {
+    if (!layout.backgroundColor) {
+      return;
+    }
+
+    ctx.save();
+    ctx.fillStyle = layout.backgroundColor;
+
+    if (layout.backgroundBlur && layout.backgroundBlur > 0) {
+      ctx.filter = `blur(${layout.backgroundBlur}px)`;
+    }
+
+    ctx.fillRect(layout.x, layout.y, layout.width, layout.height);
+    ctx.restore();
   }
 
   private drawText(
@@ -397,12 +413,13 @@ export class CardGenerator {
     debugColor?: string,
     debugLabel?: string
   ): void {
-    // Draw bounding box in debug mode first (so text overlays on top)
+    // Draw background first, so it's behind everything
+    this.drawTextBackground(ctx, layout);
+
     if (debugMode && debugColor && debugLabel) {
       this.drawBoundingBox(ctx, layout, debugColor, debugLabel);
     }
 
-    // Check if the requested font is loaded, fallback to Arial if not
     const fontFamily = this.loadedFonts.has(layout.fontFamily)
       ? layout.fontFamily
       : "Arial";
@@ -419,7 +436,6 @@ export class CardGenerator {
     ctx.textAlign = this.getCanvasTextAlign(layout.align);
     ctx.textBaseline = this.getCanvasTextBaseline(layout.align);
 
-    // Debug font information
     if (debugMode) {
       console.log(
         `🔤 Drawing text: "${text.substring(0, 20)}${
@@ -433,24 +449,32 @@ export class CardGenerator {
       console.log(`   Color: ${layout.color}`);
     }
 
-    const position = this.getTextPosition(layout);
-    const maxWidth = layout.maxWidth || layout.width;
+    // Apply padding for text rendering
+    const padding = layout.padding || 0;
+    const paddedLayout = {
+      ...layout,
+      x: layout.x + padding,
+      y: layout.y + padding,
+      width: layout.width - padding * 2,
+      height: layout.height - padding * 2,
+    };
+
+    const position = this.getTextPosition(paddedLayout);
+    const maxWidth = paddedLayout.maxWidth || paddedLayout.width;
 
     if (layout.maxWidth || text.includes(" ")) {
       const lines = this.wrapText(ctx, text, maxWidth);
       const lineHeight = layout.lineHeight || layout.fontSize * 1.2;
 
-      // Calculate starting Y position for multi-line text
       let startY = position.y;
       const totalTextHeight = lines.length * lineHeight;
 
-      // Adjust starting position based on alignment for multi-line text
-      if (layout.align.includes("bottom")) {
+      if (paddedLayout.align.includes("bottom")) {
         startY = position.y - totalTextHeight + lineHeight;
       } else if (
-        layout.align === "center" ||
-        layout.align === "left" ||
-        layout.align === "right"
+        paddedLayout.align === "center" ||
+        paddedLayout.align === "left" ||
+        paddedLayout.align === "right"
       ) {
         startY = position.y - totalTextHeight / 2 + lineHeight / 2;
       }
@@ -576,22 +600,18 @@ export class CardGenerator {
     const canvas = createCanvas(this.config.cardWidth, this.config.cardHeight);
     const ctx = canvas.getContext("2d");
 
-    // 1. Draw white background base layer
     ctx.fillStyle = this.config.backgroundColor;
     ctx.fillRect(0, 0, this.config.cardWidth, this.config.cardHeight);
 
-    // 2. Draw element-specific template
     if (cardData.Element) {
       await this.drawElementTemplate(ctx, cardData.Element);
     }
 
-    // 3. Draw card art from Address URL
     if (cardData.Address) {
       const imageUrl = this.getImageUrlFromAddress(cardData.Address);
       await this.drawCardArt(ctx, imageUrl, debugMode);
     }
 
-    // 4. Draw text elements with debug bounding boxes
     const textMappings: Array<[keyof CardData, keyof CardLayout]> = [
       ["Name", "name"],
       ["Cost", "cost"],
@@ -659,7 +679,6 @@ export class CardGenerator {
       const filename = "1.webp";
       const outputPath = path.join(this.config.outputDir, filename);
 
-      // Force remove the old file first
       try {
         await fs.remove(outputPath);
         console.log(`🗑️  Removed old file: ${filename}`);
@@ -667,7 +686,6 @@ export class CardGenerator {
         // File might not exist, that's okay
       }
 
-      // Convert PNG buffer to WebP using Sharp
       console.log(`📸 Converting to WebP...`);
       const pngBuffer = canvas.toBuffer("image/png");
       const webpBuffer = await this.convertToWebP(
@@ -675,10 +693,8 @@ export class CardGenerator {
         this.config.webpQuality
       );
 
-      // Write the new file
       await fs.writeFile(outputPath, webpBuffer);
 
-      // Verify the file was written
       const stats = await fs.stat(outputPath);
       console.log(
         `✅ Generated: ${filename} (${Math.round(
@@ -723,7 +739,6 @@ export class CardGenerator {
         const filename = `${this.sanitizeFilename(card.Card)}.webp`;
         const outputPath = path.join(this.config.outputDir, filename);
 
-        // Convert PNG buffer to WebP using Sharp
         const pngBuffer = canvas.toBuffer("image/png");
         const webpBuffer = await this.convertToWebP(
           pngBuffer,
@@ -746,10 +761,9 @@ export class CardGenerator {
   }
 }
 
-// Usage example and configuration
 async function main(): Promise<void> {
   const isSingleMode = process.argv.includes("--single");
-  const cardIndex = 0; // Which card to generate in single mode (0 = first card)
+  const cardIndex = 0;
 
   if (isSingleMode) {
     console.clear();
@@ -767,27 +781,23 @@ async function main(): Promise<void> {
     cardHeight: 2539,
     backgroundColor: "#ffffff",
     webpQuality: 95,
-    // Card art positioning
     cardArtX: 220,
     cardArtY: 445,
     cardArtWidth: 1300,
     cardArtHeight: 1300,
     fonts: {
-      CardTitle: "./fonts/Stone Serif Semibold.ttf",
-      CardText: "./fonts/Stone Serif Semibold.ttf",
       CardNumbers: "./fonts/Stone Serif Semibold.ttf",
     },
     layout: {
-      // EDIT THESE VALUES - NOW WITH BOUNDING BOXES AND NEW ALIGNMENT SYSTEM!
       name: {
-        x: 95, // Top-left X position of bounding box
-        y: 85, // Top-left Y position of bounding box
-        width: 1350, // Width of bounding box
-        height: 155, // Height of bounding box
+        x: 100,
+        y: 85,
+        width: 1350,
+        height: 155,
         fontSize: 120,
         fontFamily: "CardNumbers",
         color: "white",
-        align: "left", // Centers text within the bounding box
+        align: "left",
         maxWidth: 1400,
       },
       cost: {
@@ -803,7 +813,7 @@ async function main(): Promise<void> {
       lore: {
         x: 130,
         y: 1800,
-        width: 1490,
+        width: 1483,
         height: 200,
         fontSize: 42,
         fontFamily: "CardNumbers",
@@ -811,6 +821,24 @@ async function main(): Promise<void> {
         align: "top-left",
         maxWidth: 1300,
         lineHeight: 64,
+        // New properties for background and padding
+        padding: 20,
+        backgroundColor: "rgba(0, 0, 0, 0.2)",
+        backgroundBlur: 8, // Blur radius in pixels
+      },
+      skills: {
+        x: 130,
+        y: 2000,
+        width: 1483,
+        height: 200,
+        fontSize: 32,
+        fontFamily: "CardNumbers",
+        color: "white",
+        align: "top-left",
+        // New properties for background and padding
+        padding: 20,
+        backgroundColor: "rgba(0, 0, 0, 0.2)",
+        backgroundBlur: 8, // Blur radius in pixels
       },
       armor: {
         x: 80,
@@ -826,21 +854,11 @@ async function main(): Promise<void> {
         x: 920,
         y: 2250,
         width: 740,
-        height: 205,
+        height: 210,
         fontSize: 120,
         fontFamily: "CardNumbers",
         color: "white",
         align: "center",
-      },
-      skills: {
-        x: 130,
-        y: 2001,
-        width: 1490,
-        height: 200,
-        fontSize: 32,
-        fontFamily: "CardNumbers",
-        color: "white",
-        align: "top-left",
       },
     },
   });
@@ -848,7 +866,7 @@ async function main(): Promise<void> {
   try {
     if (isSingleMode) {
       await generator.loadFonts();
-      await generator.generateSingleCard(cardIndex, true); // Always show debug in single mode
+      await generator.generateSingleCard(cardIndex, true);
       console.log("\n🎯 Debug Legend:");
       console.log("   🔴 Name (Red)      🟢 Cost (Green)");
       console.log("   🔵 Lore (Blue)     🟡 Attack (Yellow)");
@@ -870,7 +888,6 @@ async function main(): Promise<void> {
   }
 }
 
-// Run the generator
 if (require.main === module) {
   main();
 }

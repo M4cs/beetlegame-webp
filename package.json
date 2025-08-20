@@ -6,7 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc",
-    "single": "ts-node src/card-generator.ts --single",
+    "single": "tsx src/card-generator.ts --single",
     "dev": "tsx src/card-generator.ts",
     "start": "node dist/card-generator.js"
   },
