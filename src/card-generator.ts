@@ -132,7 +132,7 @@ export class CardGenerator {
         x: 100,
         y: 540,
         width: 550,
-        height: 100,
+        height: 200,
         fontSize: 18,
         fontFamily: "Stone Serif Semibold",
         color: "#333",
@@ -192,6 +192,19 @@ export class CardGenerator {
 
   private getImageUrlFromAddress(address: string): string {
     return `https://beetle-game.s3.us-east-1.amazonaws.com/images/${address}.png`;
+  }
+
+  private convertCostToStars(costString: string): string {
+    // Extract number from strings like "3 ⭐️" or "5⭐️" or "2 stars"
+    const match = costString.match(/(\d+)/);
+    const starCount = match ? parseInt(match[1], 10) : 0;
+
+    if (starCount === 0) {
+      return "";
+    }
+
+    // Create string with stars separated by spaces: "⭐ ⭐ ⭐"
+    return Array(starCount).fill("⭐").join("  ");
   }
 
   public async clearAllCaches(): Promise<void> {
@@ -612,30 +625,40 @@ export class CardGenerator {
       await this.drawCardArt(ctx, imageUrl, debugMode);
     }
 
-    const textMappings: Array<[keyof CardData, keyof CardLayout]> = [
-      ["Name", "name"],
-      ["Cost", "cost"],
-      ["Lore", "lore"],
-      ["Attack", "attack"],
-      ["Armor", "armor"],
-      ["Skills", "skills"],
+    const textMappings: Array<
+      [keyof CardData, keyof CardLayout, (value: string) => string]
+    > = [
+      ["Name", "name", (value) => value],
+      ["Cost", "cost", (value) => this.convertCostToStars(value)],
+      ["Lore", "lore", (value) => value],
+      ["Attack", "attack", (value) => "ATK " + value],
+      ["Armor", "armor", (value) => "HP " + value],
+      ["Skills", "skills", (value) => value],
     ];
 
     const debugColors = this.getDebugColors();
 
-    for (const [dataKey, layoutKey] of textMappings) {
+    for (const [dataKey, layoutKey, transformer] of textMappings) {
       const value = cardData[dataKey];
       const layout = this.config.layout[layoutKey];
 
       if (value && layout) {
-        this.drawText(
-          ctx,
-          value.toString(),
-          layout,
-          debugMode,
-          debugColors[layoutKey],
-          layoutKey
-        );
+        const displayValue = transformer(value.toString());
+        if (displayValue) {
+          // Only draw if there's something to display
+          this.drawText(
+            ctx,
+            displayValue,
+            layout,
+            debugMode,
+            debugColors[layoutKey],
+            layoutKey
+          );
+
+          if (debugMode && layoutKey === "cost") {
+            console.log(`⭐ Cost conversion: "${value}" -> "${displayValue}"`);
+          }
+        }
       }
     }
 
@@ -665,6 +688,7 @@ export class CardGenerator {
 
     const card = this.cardData[cardIndex];
     const imageUrl = this.getImageUrlFromAddress(card.Address);
+    const starDisplay = this.convertCostToStars(card.Cost);
     const timestamp = new Date().toLocaleTimeString();
 
     console.log(
@@ -673,6 +697,7 @@ export class CardGenerator {
       }`
     );
     console.log(`   Image URL: ${imageUrl}`);
+    console.log(`   Cost: "${card.Cost}" -> "${starDisplay}"`);
 
     try {
       const canvas = await this.generateCard(card, debugMode);
@@ -727,10 +752,11 @@ export class CardGenerator {
     for (let i = 0; i < cardData.length; i++) {
       const card = cardData[i];
       const imageUrl = this.getImageUrlFromAddress(card.Address);
+      const starDisplay = this.convertCostToStars(card.Cost);
       console.log(
         `Generating card ${i + 1}/${cardData.length}: ${card.Card} (${
           card.Element
-        })`
+        }) - Cost: "${card.Cost}" -> "${starDisplay}"`
       );
       console.log(`  Image URL: ${imageUrl}`);
 
@@ -782,7 +808,7 @@ async function main(): Promise<void> {
     backgroundColor: "#ffffff",
     webpQuality: 95,
     cardArtX: 220,
-    cardArtY: 445,
+    cardArtY: 451,
     cardArtWidth: 1300,
     cardArtHeight: 1300,
     fonts: {
@@ -801,26 +827,26 @@ async function main(): Promise<void> {
         maxWidth: 1400,
       },
       cost: {
-        x: 1445,
-        y: 85,
-        width: 205,
-        height: 155,
+        x: 110,
+        y: 270,
+        width: 1500,
+        height: 125,
         fontSize: 70,
         fontFamily: "CardNumbers",
         color: "white",
-        align: "center",
+        align: "left",
       },
       lore: {
         x: 130,
         y: 1800,
         width: 1483,
-        height: 200,
-        fontSize: 42,
+        height: 250,
+        fontSize: 46,
         fontFamily: "CardNumbers",
         color: "#ffffff",
         align: "top-left",
         maxWidth: 1300,
-        lineHeight: 64,
+        lineHeight: 48,
         // New properties for background and padding
         padding: 20,
         backgroundColor: "rgba(0, 0, 0, 0.2)",
@@ -828,36 +854,36 @@ async function main(): Promise<void> {
       },
       skills: {
         x: 130,
-        y: 2000,
+        y: 2050,
         width: 1483,
-        height: 200,
-        fontSize: 32,
+        height: 150,
+        fontSize: 38,
         fontFamily: "CardNumbers",
         color: "white",
-        align: "top-left",
+        align: "left",
         // New properties for background and padding
         padding: 20,
         backgroundColor: "rgba(0, 0, 0, 0.2)",
         backgroundBlur: 8, // Blur radius in pixels
       },
-      armor: {
+      attack: {
         x: 80,
         y: 2250,
         width: 740,
         height: 205,
         fontSize: 120,
         fontFamily: "CardNumbers",
-        color: "white",
+        color: "rgba(255, 255, 255, 0.7)",
         align: "center",
       },
-      attack: {
+      armor: {
         x: 920,
         y: 2250,
         width: 740,
         height: 210,
         fontSize: 120,
         fontFamily: "CardNumbers",
-        color: "white",
+        color: "rgba(255, 255, 255, 0.7)",
         align: "center",
       },
     },
@@ -868,11 +894,15 @@ async function main(): Promise<void> {
       await generator.loadFonts();
       await generator.generateSingleCard(cardIndex, true);
       console.log("\n🎯 Debug Legend:");
-      console.log("   🔴 Name (Red)      🟢 Cost (Green)");
+      console.log("   🔴 Name (Red)      🟢 Cost (Green) - Shows as ⭐ ⭐ ⭐");
       console.log("   🔵 Lore (Blue)     🟡 Attack (Yellow)");
       console.log("   🟣 Armor (Magenta)");
       console.log("   🟠 Skills (Orange)");
       console.log("   🟢 Card Art (Green border)");
+      console.log("\n⭐ Cost Display:");
+      console.log("   '3 ⭐️' becomes '⭐ ⭐ ⭐' (stars with spaces)");
+      console.log("   '5 ⭐️' becomes '⭐ ⭐ ⭐ ⭐ ⭐'");
+      console.log("   Uses regular text rendering with Unicode stars");
       console.log("\n💡 Text Alignment Options:");
       console.log("   top-left, top-center, top-right");
       console.log("   left, center, right");
